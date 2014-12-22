@@ -1,0 +1,132 @@
+<html>
+    <head>
+        <title>Fast Fourier Transform Demonstration</title>
+        <link rel="stylesheet" type="text/css" href="./presentation.css" />
+        <script src='./presentation.js'></script>
+        <script>
+            /*\
+            \*  Copywrite (c) 2012-2015 Britt Gresham
+             \  ------------------------------------------------------------------------
+             *\ Permission is hereby granted, free of charge, to any person obtaining
+             *| a copy of this software and associated documentation files (the
+             *| "Software"), to deal in the Software without restriction, including
+             *| without limitation the rights to use, copy, modify, merge, publish,
+             *| distribute, sublicense, and/or sell copies of the Software, and to
+             *| permit persons to whom the Software is furnished to do so, subject to
+             *| the following conditions:
+             *|
+             *| The above copyright notice and this permission notice shall be
+             *| included in all copies or substantial portions of the Software.
+             *|
+             *| THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+             *| EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+             *| MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+             *| NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+             *| LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+             *| OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+             *| WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+             *| ------------------------------------------------------------------------
+             *|
+             *| A Look Behind Music Music Revolution
+             *| Tested in Google Chrome 39 (12/22/2014)
+             *|
+            \*/
+
+            var musicfile = './music/preamble.ogg';
+            var canvas;
+            var ctx;
+            var audioContext = new webkitAudioContext();
+            var analysisRunning = false;
+
+            function init() {
+                /*
+                  After the document loads, grab the canvas elements 2D Context for drawing.
+                  Then we will download the audio and play it for analysis.
+                */
+                canvas = document.getElementById('fftspectrum');
+                ctx = canvas.getContext('2d');
+                downloadSongFromUrl(musicfile);
+            }
+
+            function downloadSongFromUrl(songUrl) {
+                /*
+                  Here we download the song from the url that is passed in and pass it on to
+                  the playBuffer function.
+                */
+                var request = new XMLHttpRequest();
+
+                request.open('GET', songUrl, true);
+                request.responseType = 'arraybuffer';
+                request.onprogress = progressBar;
+
+                request.onload = function() {
+                    audioContext.decodeAudioData(request.response, function(buffer) {
+                        playBuffer(buffer);
+                    });
+                }
+
+                request.send();
+            }
+
+            function playBuffer(audioBuffer) {
+                /*
+                  We create audio nodes here and create a route for the audio to follow.
+                  First it is given a source node, in the end we want it to reach an
+                  audioContext.destination. think of it like an mp3 player and you
+                  connect it to a stereo. The mp3 player is your source node and the
+                  stereo is the audioContext.destination node.
+                */
+                source = audioContext.createBufferSource();
+                analyser = audioContext.createAnalyser();
+
+                // Assign the buffer to the source. (Put music onto the mp3 player)
+                source.buffer = audioBuffer;
+                source.loop = true;
+                analyser.smoothingTimeConstant = .75;
+
+                // Make the connections
+                source.connect(analyser);
+                analyser.connect(audioContext.destination);
+
+                // Play the audio right now and begin FFT analysis
+                source.start(0);
+                analyseAudio();
+            }
+
+            function analyseAudio() {
+                /*
+                  Display FFT in canvas
+                */
+                var FFTArray = new Float32Array(1024);
+
+                // We have to lock this function incase timing issues with setTimeout occur
+                if (!analysisRunning) {
+                    analysisRunning = true;
+
+                    // Populate FFTArray with Data
+                    analyser.getFloatFrequencyData(FFTArray);
+                    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+                    // Draw FFT
+                    ctx.fillStyle = "#1f1f1f";
+                    for (var x=0; x<FFTArray.length; x+=1) {
+                        ctx.fillRect((x/FFTArray.length)*canvas.width,canvas.height,FFTArray.length/canvas.width,(FFTArray[x]+200)*-2);
+                    }
+
+                    analysisRunning = false;
+                    setTimeout("analyseAudio()",30/1000);
+                }
+            }
+
+        </script>
+    </head>
+    <body onload='init()'>
+        <h2>Web Audio Api</h2>
+        <h3>FFT Demonstration</h3>
+        <div id="container">
+            <canvas id='fftspectrum' width=1024 height=400>
+                Sorry, your web browser does not support the canvas element.
+            </canvas>
+        </div>
+    </body>
+</html>

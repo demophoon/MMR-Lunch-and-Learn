@@ -1,0 +1,281 @@
+
+<html>
+    <head>
+        <title>Beat Detection Demonstration</title>
+        <link rel="stylesheet" type="text/css" href="./presentation.css" />
+        <script src='./presentation.js'></script>
+        <script>
+            /*\
+            \*  Copywrite (c) 2012-2015 Britt Gresham
+             \  ------------------------------------------------------------------------
+             *\ Permission is hereby granted, free of charge, to any person obtaining
+             *| a copy of this software and associated documentation files (the
+             *| "Software"), to deal in the Software without restriction, including
+             *| without limitation the rights to use, copy, modify, merge, publish,
+             *| distribute, sublicense, and/or sell copies of the Software, and to
+             *| permit persons to whom the Software is furnished to do so, subject to
+             *| the following conditions:
+             *|
+             *| The above copyright notice and this permission notice shall be
+             *| included in all copies or substantial portions of the Software.
+             *|
+             *| THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+             *| EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+             *| MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+             *| NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+             *| LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+             *| OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+             *| WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+             *| ------------------------------------------------------------------------
+             *|
+             *| A Look Behind Music Music Revolution
+             *| Tested in Google Chrome 39 (12/22/2014)
+             *|
+            \*/
+
+            var musicfile = './music/riot.ogg';
+            var canvas;
+            var ctx;
+            var audioContext = new webkitAudioContext();
+            var analysisRunning = false;
+
+            function init() {
+                /*
+                  After the document loads, grab the canvas elements 2D Context for drawing.
+                  Then we will download the audio and play it for analysis.
+                */
+                canvas = document.getElementById('fftspectrum');
+                ctx = canvas.getContext('2d');
+                downloadSongFromUrl(musicfile);
+            }
+
+            function downloadSongFromUrl(songUrl) {
+                /*
+                  Here we download the song from the url that is passed in and pass it on to
+                  the playBuffer function.
+                */
+                var request = new XMLHttpRequest();
+
+                request.open('GET', songUrl, true);
+                request.responseType = 'arraybuffer';
+                request.onprogress = progressBar;
+
+                request.onload = function() {
+                    audioContext.decodeAudioData(request.response, function(buffer) {
+                        playBuffer(buffer);
+                    });
+                }
+
+                request.send();
+            }
+
+            function playBuffer(audioBuffer) {
+                /*
+                  We create audio nodes here and create a route for the audio to follow.
+                  First it is given a source node, in the end we want it to reach an
+                  audioContext.destination. think of it like an mp3 player and you
+                  connect it to a stereo. The mp3 player is your source node and the
+                  stereo is the audioContext.destination node.
+                */
+                source = audioContext.createBufferSource();
+                analyser = audioContext.createAnalyser();
+
+                // Assign the buffer to the source. (Put music onto the mp3 player)
+                source.buffer = audioBuffer;
+                source.loop = true;
+                analyser.smoothingTimeConstant = .5;
+
+                // Make the connections
+                source.connect(analyser);
+                analyser.connect(audioContext.destination);
+
+                // Play the audio right now and begin FFT analysis
+                source.start(0);
+                analyseAudio();
+            }
+
+            var fps = 30;
+            var segments = 1;
+            var c = 1.3;
+
+            var ffthistory = [];
+
+            var bandInfo;
+
+            function analyseAudio() {
+                /*
+                  Display FFT in canvas
+                */
+                var FFTArray = new Float32Array(1024);
+                bandInfo = [];
+
+                // We have to lock this function incase timing issues with setTimeout occur
+                if (!analysisRunning) {
+                    analysisRunning = true;
+
+                    // Populate FFTArray with Data and Clear Canvas
+                    analyser.getFloatFrequencyData(FFTArray);
+                    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+                    // Calculate Beats on Each Subband
+                    var segmentLength = ~~(canvas.width/segments)
+                    for (var subband=0; subband<segments; subband+=1) {
+                        // Calculate Instant Energy
+                        var instantEnergy = 0;
+                        for (var x=subband*segmentLength; x<(subband+1)*segmentLength; x+=1) {
+                            instantEnergy += Math.abs(FFTArray[x]);
+                        }
+                        instantEnergy = instantEnergy/segmentLength;
+
+                        // Calculate Average Energy
+                        var averageEnergy = 0;
+                        for (var h=0; h<ffthistory.length; h+=1) {
+                            for (var x=subband*segmentLength; x<(subband+1)*segmentLength; x+=1) {
+                                averageEnergy += Math.abs(ffthistory[h][x]);
+                            }
+                        }
+                        averageEnergy = averageEnergy/(segmentLength*(ffthistory.length))
+
+                        // Gather Information for the Graph
+                        bandInfo[subband] = {
+                            'averageEnergy':averageEnergy,
+                            'instantEnergy':instantEnergy,
+                            'beat':false
+                        }
+
+                        if (instantEnergy >= averageEnergy*c) {
+                            // We have a Beat!
+                            bandInfo[subband]['beat'] = true;
+                        }
+
+                    }
+                    /*
+                      If History contains data that is roughly more than one second then we
+                      must remove it. Since we are rendering fps amount of frames per second
+                      we can assume that only fps number of entries should exist in history.
+                    */
+                    if (ffthistory.length > fps) {
+                        ffthistory.splice(0,1);
+                    }
+                    ffthistory.push(FFTArray);
+
+                    // Draw FFT
+                    ctx.fillStyle = "#1f1f1f";
+                    for (var x=0; x<FFTArray.length; x+=1) {
+                        ctx.fillRect((x/FFTArray.length)*canvas.width,canvas.height,FFTArray.length/canvas.width,(FFTArray[x]+200)*-2);
+                    }
+
+                    // Draw Guides
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = "middle";
+                    ctx.font = "10pt Arial";
+                    ctx.fillStyle = "#0000ff";
+                    for (var x=0; x<bandInfo.length; x+=1) {
+                        // Goals and average lines
+                        position = x*segmentLength
+                        ctx.fillStyle = "#0000ff";
+                        ctx.fillRect(position,bandInfo[x]['instantEnergy'],segmentLength,5);
+                        ctx.fillStyle = "#00ff00";
+                        ctx.fillRect(position,bandInfo[x]['averageEnergy']*c,segmentLength,5);
+
+                    }
+                    ctx.globalAlpha = .5;
+                    if ($('#displayBeats').attr('checked') == 'checked') {
+                        ctx.fillStyle = "#ffff00";
+                        for (var x=0; x<=segments; x+=1) {
+                            position = x*segmentLength
+                            // Is Beat?
+                            if (x < segments && bandInfo[x]['beat']) {
+                                ctx.fillRect(position,0,segmentLength,canvas.height);
+                            }
+                        }
+                    }
+                    ctx.globalAlpha = 1;
+                    ctx.fillStyle = "#ff0000";
+                    for (var x=0; x<=segments; x+=1) {
+                        position = x*segmentLength
+                        if (x < 1) {
+                            ctx.textAlign = 'left';
+                            ctx.fillRect(position,0,1,canvas.height);
+                            ctx.fillText(position,position+5,30);
+                            ctx.textAlign = 'center';
+                        } else if (x > segments-1) {
+                            ctx.textAlign = 'right';
+                            ctx.fillRect(position-1,0,1,canvas.height);
+                            ctx.fillText(position,position-5,30);
+                        } else {
+                            ctx.fillRect(position,25,1,canvas.height-25);
+                            ctx.fillText(position,position,10);
+                        }
+                    }
+
+                    analysisRunning = false;
+                    setTimeout("analyseAudio()",fps/1000);
+                }
+            }
+
+        </script>
+    </head>
+    <body onload='init()'>
+        <h2>Web Audio Api</h2>
+        <h3>Beat Detection Demonstration</h3>
+        <div id="container">
+            <canvas id='fftspectrum' width=1024 height=400>
+                Sorry, your web browser does not support the canvas element.
+            </canvas>
+
+            <br>
+
+            <table width='510px' style='float:left;border-right:4px solid #333;'>
+                <thead>
+                    <tr>
+                        <th>Option</th>
+                        <th>Control</th>
+                        <th>Value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Segments</td>
+                        <td>
+                            <input id="segmentTuner" type="range" name="segments" min="1" max="64" step=1 value=1 onchange="segments=$('#segmentTuner').val();$('#segmentNumber').html($('#segmentTuner').val());" />
+                        </td>
+                        <td id="segmentNumber">1</td>
+                    </tr>
+                    <tr>
+                        <td>C</td>
+                        <td>
+                            <input id="cTuner" type="range" name="segments" min=".1" max="5" step=".05" value=1.3 onchange="c=$('#cTuner').val();$('#cNumber').html($('#cTuner').val());" />
+                        </td>
+                        <td id="cNumber">1.3</td>
+                    </tr>
+                    <tr>
+                        <td>Display Beats</td>
+                        <td></td>
+                        <td><input id='displayBeats' type='checkbox' /></td>
+                    </tr>
+                </tbody>
+            </table>
+            <table width='510px' style='float:right;'>
+                <tbody>
+                    <tr>
+                        <td>Play</td>
+                        <td><input type='button' value='Play' onclick="source.connect(analyser);" /></td>
+                    </tr>
+                    <tr>
+                        <td>Pause</td>
+                        <td><input type='button' value='Pause' onclick="source.disconnect();" /></td>
+                    </tr>
+                    <tr>
+                        <td>Instant Sound Energy</td>
+                        <td style='background:#0000ff'></td>
+                    </tr>
+                    <tr>
+                        <td>Average Sound Energy</td>
+                        <td style='background:#00ff00'></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </body>
+</html>
