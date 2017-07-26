@@ -35,7 +35,7 @@
             var musicfile = './music/preamble.ogg';
             var canvas;
             var ctx;
-            var audioContext = new webkitAudioContext();
+            var audioContext = new (window.AudioContext || window.webkitAudioContext)();
             var analysisRunning = false;
 
             function init() {
